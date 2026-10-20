@@ -9,14 +9,23 @@ if [ "$ALLOW_INTERNAL_IPS" != "1" ]; then
 fi
 
 mkdir -p /tmp/state /tmp/cache
-chown -R 1000:1000 /tmp/state /tmp/cache /home/opencode-user/.local/share/opencode
+chown -R 1000:1000 /tmp/state /tmp/cache
 
 export HOME="/home/opencode-user"
 export USER="opencode-user"
 export LOGNAME="opencode-user"
 
+if [ "$AGENT" = "claude" ]; then
+    mkdir -p /home/opencode-user/.claude/xdg_config/anthropic /home/opencode-user/.claude/xdg_state
+    chown -R 1000:1000 /home/opencode-user/.claude 2>/dev/null || true
+    AGENT_BIN="/opt/claude/bin/claude"
+else
+    chown -R 1000:1000 /home/opencode-user/.local/share/opencode 2>/dev/null || true
+    AGENT_BIN="/opt/opencode/.opencode/bin/opencode"
+fi
+
 exec setpriv \
     --inh-caps=-all \
     --bounding-set=-all \
     --no-new-privs \
-    -- /opt/opencode/.opencode/bin/opencode "$@"
+    -- "$AGENT_BIN" "$@"

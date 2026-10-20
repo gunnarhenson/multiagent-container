@@ -1,3 +1,5 @@
 .env
 state
+claude_state
 opencode.jsonc
+claude_settings.json

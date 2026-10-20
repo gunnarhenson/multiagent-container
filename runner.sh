@@ -4,18 +4,29 @@ WORKSPACE_MODE="ro"
 ARGS=()
 EXTRA_MOUNT_SPECS=()
 
+AGENT="opencode"
+if [ "$(basename -- "$0")" = "claude" ]; then
+  AGENT="claude"
+fi
+
 ALLOW_INTERNAL_IPS="0"
 SHOW_WRAPPER_HELP="0"
 while [ $# -gt 0 ]; do
   case "$1" in
     -rw)
       WORKSPACE_MODE="rw"
-      echo "starting opencode in rw mode"
       shift
       ;;
     -lan)
       ALLOW_INTERNAL_IPS="1"
-      echo "starting opencode with internal network access"
+      shift
+      ;;
+    -claude|--claude)
+      AGENT="claude"
+      shift
+      ;;
+    -opencode|--opencode)
+      AGENT="opencode"
       shift
       ;;
     -m)
@@ -42,10 +53,37 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ "$WORKSPACE_MODE" = "rw" ]; then
+  echo "starting ${AGENT} in rw mode"
+fi
+if [ "$ALLOW_INTERNAL_IPS" = "1" ]; then
+  echo "starting ${AGENT} with internal network access"
+fi
+
 SCRIPT_DIR=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")
+
+mkdir -p "${SCRIPT_DIR}/state" "${SCRIPT_DIR}/claude_state"
 
 if [ ! -f "${SCRIPT_DIR}/opencode.jsonc" ]; then
     touch "${SCRIPT_DIR}/opencode.jsonc"
+fi
+
+if [ ! -f "${SCRIPT_DIR}/claude_settings.json" ]; then
+    cat << 'EOF' > "${SCRIPT_DIR}/claude_settings.json"
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "additionalDirectories": [
+      "/mnt",
+      "/tmp"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}
+EOF
 fi
 
 if [ ! -f "${SCRIPT_DIR}/.env" ]; then
@@ -168,6 +206,52 @@ fi
 
 PODMAN_MOUNTS+=("-v" "${ACTIVE_RULES}:/tmp/RULES.md:ro,z")
 
+AGENT_FLAGS=("-e" "AGENT=${AGENT}")
+if [ "$AGENT" = "claude" ]; then
+  PODMAN_MOUNTS+=("-v" "${ACTIVE_RULES}:/etc/claude-code/CLAUDE.md:ro,z")
+  if [ ${#EXTRA_MOUNT_SPECS[@]} -gt 0 ]; then
+    CLAUDE_DYNAMIC_SETTINGS="${SCRIPT_DIR}/state/CLAUDE_MANAGED_SETTINGS.json"
+    JSON_DIRS=""
+    for dir in "${MOUNTED_TARGETS[@]}"; do
+      if [ "$dir" != "/workspace" ]; then
+        escaped_dir="${dir//\\/\\\\}"
+        escaped_dir="${escaped_dir//\"/\\\"}"
+        JSON_DIRS="${JSON_DIRS}\"${escaped_dir}\", "
+      fi
+    done
+    JSON_DIRS="${JSON_DIRS%, }"
+    cat << EOF > "$CLAUDE_DYNAMIC_SETTINGS"
+{
+  "managedSourcesBehavior": "merge",
+  "permissions": {
+    "additionalDirectories": [${JSON_DIRS}]
+  }
+}
+EOF
+    PODMAN_MOUNTS+=("-v" "${CLAUDE_DYNAMIC_SETTINGS}:/etc/claude-code/managed-settings.json:ro,z")
+  fi
+  AGENT_FLAGS+=(
+    "-e" "CLAUDE_CONFIG_DIR=/home/opencode-user/.claude"
+    "-e" "XDG_CONFIG_HOME=/home/opencode-user/.claude/xdg_config"
+    "-e" "XDG_STATE_HOME=/home/opencode-user/.claude/xdg_state"
+    "-e" "DISABLE_AUTOUPDATER=1"
+    "-e" "DISABLE_UPDATES=1"
+    "-v" "${SCRIPT_DIR}/claude_state:/home/opencode-user/.claude:Z,U"
+    "-v" "${SCRIPT_DIR}/claude_settings.json:/home/opencode-user/.claude/settings.json:ro,z"
+  )
+else
+  AGENT_FLAGS+=(
+    "-e" "XDG_STATE_HOME=/home/opencode-user/.local/share/opencode/xdg_state"
+    "-e" "OPENCODE_DISABLE_AUTOUPDATE=1"
+    "-e" "OPENCODE_CONFIG_CONTENT={\"instructions\": [\"/tmp/RULES.md\"]}"
+    "-v" "${SCRIPT_DIR}/state:/home/opencode-user/.local/share/opencode:Z,U"
+    "-v" "${SCRIPT_DIR}/opencode.jsonc:/home/opencode-user/.config/opencode/opencode.jsonc:ro,z"
+    "-v" "${SCRIPT_DIR}/opencode_service.json:/home/opencode-user/.config/opencode/service.json:ro,z"
+    "-v" "${SCRIPT_DIR}/opencode_cli.json:/home/opencode-user/.config/opencode/cli.json:ro,z"
+    "-v" "${SCRIPT_DIR}/opencode.gitignore:/home/opencode-user/.config/opencode/.gitignore:ro,z"
+  )
+fi
+
 PODMAN_DNS=()
 if [ "$ALLOW_INTERNAL_IPS" != "1" ]; then
   PODMAN_DNS+=("--dns=1.1.1.1" "--dns=8.8.8.8")
@@ -180,12 +264,14 @@ SANDBOX WRAPPER FLAGS
   -lan                             Allow access to internal/private network IPs
   -m <dir>[:<name>][:ro|rw]        Mount an additional host directory to /mnt/<name> (or /<path> if absolute)
   -m=<dir>[:<name>][:ro|rw]        Same as -m (inherits workspace ro/rw mode unless :ro or :rw is specified)
+  -claude, --claude                Run the Claude Code CLI agent (default when invoked as 'claude')
+  -opencode, --opencode            Run the OpenCode CLI agent (default when invoked as 'opencode')
 
 EOF
 fi
 
 exec podman run -it --rm \
-  --name "opencode-sandbox-$$" \
+  --name "${AGENT}-sandbox-$$" \
   --cap-drop=ALL \
   --cap-add=CAP_NET_ADMIN \
   --cap-add=CAP_SETPCAP \
@@ -198,16 +284,9 @@ exec podman run -it --rm \
   --cpus=4 \
   --sysctl net.ipv6.conf.all.disable_ipv6=1 \
   --sysctl net.ipv6.conf.default.disable_ipv6=1 \
-  -e XDG_STATE_HOME=/home/opencode-user/.local/share/opencode/xdg_state \
   -e XDG_CACHE_HOME=/tmp/cache \
   -e ALLOW_INTERNAL_IPS="$ALLOW_INTERNAL_IPS" \
-  -e OPENCODE_DISABLE_AUTOUPDATE=1 \
-  -e OPENCODE_CONFIG_CONTENT='{"instructions": ["/tmp/RULES.md"]}' \
-  -v "${SCRIPT_DIR}/state:/home/opencode-user/.local/share/opencode:Z,U" \
-  -v "${SCRIPT_DIR}/opencode.jsonc:/home/opencode-user/.config/opencode/opencode.jsonc:ro,z" \
-  -v "${SCRIPT_DIR}/opencode_service.json:/home/opencode-user/.config/opencode/service.json:ro,z" \
-  -v "${SCRIPT_DIR}/opencode_cli.json:/home/opencode-user/.config/opencode/cli.json:ro,z" \
-  -v "${SCRIPT_DIR}/opencode.gitignore:/home/opencode-user/.config/opencode/.gitignore:ro,z" \
+  "${AGENT_FLAGS[@]}" \
   "${PODMAN_MOUNTS[@]}" \
   --env-file="${SCRIPT_DIR}/.env" \
-  opencode-sandbox "${ARGS[@]}"
+  "${AGENT}-sandbox" "${ARGS[@]}"

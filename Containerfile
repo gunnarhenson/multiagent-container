@@ -1,4 +1,4 @@
-FROM almalinux:10-minimal
+FROM almalinux:10-minimal AS base
 
 
 RUN microdnf update -y && \
@@ -28,7 +28,7 @@ RUN useradd -m -s /bin/bash opencode-user && \
 
 ############# go #############
 
-ARG GO_VERSION=go1.27.1
+ARG GO_VERSION=go1.27.3
 RUN wget -P /tmp https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz && \
     rm -rf /usr/local/go && \
     tar -C /usr/local -xzf /tmp/${GO_VERSION}.linux-amd64.tar.gz && \
@@ -42,7 +42,7 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 
 ############# zig #############
 
-ARG ZIG_VERSION=0.16.0
+ARG ZIG_VERSION=0.17.0
 RUN wget -O /tmp/zig.tar.xz https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz && \
     rm -rf /usr/local/zig && \
     mkdir /tmp/zig && \
@@ -56,7 +56,7 @@ ENV ZIG_GLOBAL_CACHE_DIR="/tmp/zig-global-cache"
 
 ############# rust #############
 
-ARG RUST_VERSION=1.96.0
+ARG RUST_VERSION=1.99.1
 ENV RUSTUP_HOME="/usr/local/rustup"
 RUN export CARGO_HOME="/usr/local/cargo" && \
     wget -qO- https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain ${RUST_VERSION} && \
@@ -68,21 +68,42 @@ ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld"
 
 ENV PATH="/tmp/cargo/bin:/usr/local/cargo/bin:${PATH}"
 
+COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
+
+WORKDIR /workspace
+
 ############# opencode #############
 
+FROM base AS opencode
+
 # Releases: https://github.com/anomalyco/opencode/tags
-ARG OPENCODE_VERSION=2.0.27
+ARG OPENCODE_VERSION=2.1.0
 RUN wget -O /tmp/install https://opencode.ai/v2/install && \
     HOME=/opt/opencode bash /tmp/install --version ${OPENCODE_VERSION} && \
     chmod 755 /opt/opencode/.opencode/bin/opencode && \
     rm -f /tmp/install
 
 ENV PATH="/opt/opencode/.opencode/bin:${PATH}"
+ENV AGENT="opencode"
 
+USER opencode-user
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
+############# claude #############
 
-WORKDIR /workspace
+FROM base AS claude
+
+# Releases: https://downloads.claude.ai/claude-code-releases/latest
+ARG CLAUDE_VERSION=2.1.304
+RUN mkdir -p /opt/claude/bin /home/opencode-user/.local/bin /home/opencode-user/.claude /home/opencode-user/.config /etc/claude-code && \
+    wget -O /opt/claude/bin/claude https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude && \
+    chmod 755 /opt/claude/bin/claude && \
+    ln -s /opt/claude/bin/claude /home/opencode-user/.local/bin/claude && \
+    ln -s /home/opencode-user/.claude/xdg_config/anthropic /home/opencode-user/.config/anthropic && \
+    chown -R opencode-user:opencode-user /home/opencode-user/.local /home/opencode-user/.claude /home/opencode-user/.config
+
+ENV PATH="/opt/claude/bin:/home/opencode-user/.local/bin:${PATH}"
+ENV AGENT="claude"
 
 USER opencode-user
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
