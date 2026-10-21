@@ -28,6 +28,8 @@ bump-versions:
 	if [ -n "$$ZIG_VER" ]; then sed -i "s/^ARG ZIG_VERSION=.*/ARG ZIG_VERSION=$$ZIG_VER/" Containerfile; echo "  Zig:      $$ZIG_VER"; fi
 	@RUST_VER=$$(curl -fsSL https://static.rust-lang.org/dist/channel-rust-stable.toml | sed -n '/^\[pkg\.rustc\]/,/^\[/ s/^version = "\([0-9.]*\).*/\1/p'); \
 	if [ -n "$$RUST_VER" ]; then sed -i "s/^ARG RUST_VERSION=.*/ARG RUST_VERSION=$$RUST_VER/" Containerfile; echo "  Rust:     $$RUST_VER"; fi
+	@BUN_VER=$$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/oven-sh/bun/releases/latest | sed -n 's|.*/bun-v\([0-9.]*\)$$|\1|p'); \
+	if [ -n "$$BUN_VER" ]; then sed -i "s/^ARG BUN_VERSION=.*/ARG BUN_VERSION=$$BUN_VER/" Containerfile; echo "  Bun:      $$BUN_VER"; fi
 	@OC_VER=$$(curl -fsSL https://opencode.ai/update/api/latest/cli/npm | sed -n 's/.*"version":"\([^"]*\)".*/\1/p'); \
 	if [ -n "$$OC_VER" ]; then sed -i "s/^ARG OPENCODE_VERSION=.*/ARG OPENCODE_VERSION=$$OC_VER/" Containerfile; echo "  OpenCode: $$OC_VER"; fi
 	@CL_VER=$$(curl -fsSL https://downloads.claude.ai/claude-code-releases/latest); \

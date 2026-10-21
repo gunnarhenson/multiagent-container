@@ -68,6 +68,23 @@ ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld"
 
 ENV PATH="/tmp/cargo/bin:/usr/local/cargo/bin:${PATH}"
 
+############# bun #############
+
+ARG BUN_VERSION=1.4.3
+RUN wget -O /tmp/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip && \
+    rm -rf /usr/local/bun && \
+    mkdir /tmp/bun-extract && \
+    unzip -q /tmp/bun.zip -d /tmp/bun-extract && \
+    mv /tmp/bun-extract/bun-linux-x64 /usr/local/bun && \
+    chmod 755 /usr/local/bun/bun && \
+    ln -s /usr/local/bun/bun /usr/local/bin/bun && \
+    ln -s /usr/local/bun/bun /usr/local/bin/bunx && \
+    rm -rf /tmp/bun-extract /tmp/bun.zip
+
+ENV BUN_INSTALL="/tmp/bun"
+ENV BUN_INSTALL_CACHE_DIR="/tmp/bun/cache"
+ENV PATH="/tmp/bun/bin:${PATH}"
+
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 WORKDIR /workspace
