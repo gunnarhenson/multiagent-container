@@ -53,6 +53,82 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+WORKSPACE_DIR="$(pwd)"
+FINAL_ARGS=()
+SKIP_NEXT="0"
+SEEN_SUBCOMMAND="0"
+
+for arg in "${ARGS[@]}"; do
+  if [ "$SKIP_NEXT" = "1" ]; then
+    FINAL_ARGS+=("$arg")
+    SKIP_NEXT="0"
+    continue
+  fi
+
+  if [ "$AGENT" = "opencode" ]; then
+    case "$arg" in
+      --server|--session|-s|--prompt|--completions|--log-level|--model|--agent|--format|--file|-f|--title|--replay-limit)
+        FINAL_ARGS+=("$arg")
+        SKIP_NEXT="1"
+        continue
+        ;;
+      -*)
+        FINAL_ARGS+=("$arg")
+        continue
+        ;;
+    esac
+
+    if [ "$SEEN_SUBCOMMAND" = "0" ]; then
+      case "$arg" in
+        upgrade|update|uninstall|acp|api|debug|auth|mcp|plugin|models|stats|mini|run|session|service|reload|pair|serve)
+          SEEN_SUBCOMMAND="1"
+          FINAL_ARGS+=("$arg")
+          continue
+          ;;
+      esac
+
+      if [ -d "$arg" ]; then
+        WORKSPACE_DIR=$(realpath -- "$arg")
+        FINAL_ARGS+=(".")
+        continue
+      else
+        echo "Error: workspace directory does not exist: ${arg}" >&2
+        exit 1
+      fi
+    fi
+  elif [ "$AGENT" = "claude" ]; then
+    case "$arg" in
+      --model|--effort|--permission-mode|--add-dir|--agent|--agents|--allowedTools|--allowed-tools|--disallowedTools|--disallowed-tools|--mcp-config|--system-prompt|--append-system-prompt|--output-format|--input-format|--max-turns|--session-id|--settings|--setting-sources|--betas|--plugin-dir|--file|-p|--print)
+        FINAL_ARGS+=("$arg")
+        SKIP_NEXT="1"
+        continue
+        ;;
+      -*)
+        FINAL_ARGS+=("$arg")
+        continue
+        ;;
+    esac
+
+    if [ "$SEEN_SUBCOMMAND" = "0" ]; then
+      case "$arg" in
+        auth|doctor|install|mcp|plugin|plugins|setup-token|update|upgrade|agents|auto-mode)
+          SEEN_SUBCOMMAND="1"
+          FINAL_ARGS+=("$arg")
+          continue
+          ;;
+      esac
+
+      if [ -d "$arg" ]; then
+        WORKSPACE_DIR=$(realpath -- "$arg")
+        continue
+      fi
+    fi
+  fi
+
+  FINAL_ARGS+=("$arg")
+done
+ARGS=("${FINAL_ARGS[@]}")
+
 if [ "$WORKSPACE_MODE" = "rw" ]; then
   echo "starting ${AGENT} in rw mode"
 fi
@@ -62,14 +138,26 @@ fi
 
 SCRIPT_DIR=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")
 
-mkdir -p "${SCRIPT_DIR}/state" "${SCRIPT_DIR}/claude_state"
+mkdir -p "${SCRIPT_DIR}/state" \
+         "${SCRIPT_DIR}/claude_state/xdg_config/anthropic" \
+         "${SCRIPT_DIR}/claude_state/xdg_state" \
+         "${SCRIPT_DIR}/claude_state/ccstatusline"
+
+ln -sfn /home/opencode-user/.claude/ccstatusline "${SCRIPT_DIR}/claude_state/xdg_config/ccstatusline"
+
+if [ ! -f "${SCRIPT_DIR}/claude_state/ccstatusline/settings.json" ] && [ -f "${HOME}/.config/ccstatusline/settings.json" ]; then
+    cp "${HOME}/.config/ccstatusline/settings.json" "${SCRIPT_DIR}/claude_state/ccstatusline/settings.json"
+fi
 
 if [ ! -f "${SCRIPT_DIR}/opencode.jsonc" ]; then
     touch "${SCRIPT_DIR}/opencode.jsonc"
 fi
 
-if [ ! -f "${SCRIPT_DIR}/claude_settings.json" ]; then
-    cat << 'EOF' > "${SCRIPT_DIR}/claude_settings.json"
+if [ ! -f "${SCRIPT_DIR}/claude_state/settings.json" ]; then
+    if [ -f "${SCRIPT_DIR}/claude_settings.json" ] && [ ! -L "${SCRIPT_DIR}/claude_settings.json" ]; then
+        mv "${SCRIPT_DIR}/claude_settings.json" "${SCRIPT_DIR}/claude_state/settings.json"
+    else
+        cat << 'EOF' > "${SCRIPT_DIR}/claude_state/settings.json"
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
@@ -84,6 +172,11 @@ if [ ! -f "${SCRIPT_DIR}/claude_settings.json" ]; then
   }
 }
 EOF
+    fi
+fi
+
+if [ ! -L "${SCRIPT_DIR}/claude_settings.json" ]; then
+    ln -sfn claude_state/settings.json "${SCRIPT_DIR}/claude_settings.json"
 fi
 
 if [ ! -f "${SCRIPT_DIR}/.env" ]; then
@@ -112,12 +205,12 @@ EOF
 fi
 
 PODMAN_MOUNTS=()
-# always mount the current directory to /workspace
-PODMAN_MOUNTS+=("-v" "$(pwd):/workspace:${WORKSPACE_MODE},z")
+# always mount the workspace directory to /workspace
+PODMAN_MOUNTS+=("-v" "${WORKSPACE_DIR}:/workspace:${WORKSPACE_MODE},z")
 
 # mount .git as ro always
-if [ -e "$(pwd)/.git" ]; then
-  PODMAN_MOUNTS+=("-v" "$(pwd)/.git:/workspace/.git:ro,z")
+if [ -e "${WORKSPACE_DIR}/.git" ]; then
+  PODMAN_MOUNTS+=("-v" "${WORKSPACE_DIR}/.git:/workspace/.git:ro,z")
 fi
 
 MOUNTED_TARGETS=("/workspace")
@@ -209,27 +302,28 @@ PODMAN_MOUNTS+=("-v" "${ACTIVE_RULES}:/tmp/RULES.md:ro,z")
 AGENT_FLAGS=("-e" "AGENT=${AGENT}")
 if [ "$AGENT" = "claude" ]; then
   PODMAN_MOUNTS+=("-v" "${ACTIVE_RULES}:/etc/claude-code/CLAUDE.md:ro,z")
-  if [ ${#EXTRA_MOUNT_SPECS[@]} -gt 0 ]; then
-    CLAUDE_DYNAMIC_SETTINGS="${SCRIPT_DIR}/state/CLAUDE_MANAGED_SETTINGS.json"
-    JSON_DIRS=""
-    for dir in "${MOUNTED_TARGETS[@]}"; do
-      if [ "$dir" != "/workspace" ]; then
-        escaped_dir="${dir//\\/\\\\}"
-        escaped_dir="${escaped_dir//\"/\\\"}"
-        JSON_DIRS="${JSON_DIRS}\"${escaped_dir}\", "
-      fi
-    done
-    JSON_DIRS="${JSON_DIRS%, }"
-    cat << EOF > "$CLAUDE_DYNAMIC_SETTINGS"
+  CLAUDE_DYNAMIC_SETTINGS="${SCRIPT_DIR}/state/CLAUDE_MANAGED_SETTINGS.json"
+  JSON_DIRS="\"/mnt\", \"/tmp\""
+  for dir in "${MOUNTED_TARGETS[@]}"; do
+    if [ "$dir" != "/workspace" ]; then
+      escaped_dir="${dir//\\/\\\\}"
+      escaped_dir="${escaped_dir//\"/\\\"}"
+      JSON_DIRS="${JSON_DIRS}, \"${escaped_dir}\""
+    fi
+  done
+  cat << EOF > "$CLAUDE_DYNAMIC_SETTINGS"
 {
   "managedSourcesBehavior": "merge",
   "permissions": {
-    "additionalDirectories": [${JSON_DIRS}]
+    "additionalDirectories": [${JSON_DIRS}],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
   }
 }
 EOF
-    PODMAN_MOUNTS+=("-v" "${CLAUDE_DYNAMIC_SETTINGS}:/etc/claude-code/managed-settings.json:ro,z")
-  fi
+  PODMAN_MOUNTS+=("-v" "${CLAUDE_DYNAMIC_SETTINGS}:/etc/claude-code/managed-settings.json:ro,z")
   AGENT_FLAGS+=(
     "-e" "CLAUDE_CONFIG_DIR=/home/opencode-user/.claude"
     "-e" "XDG_CONFIG_HOME=/home/opencode-user/.claude/xdg_config"
@@ -237,7 +331,7 @@ EOF
     "-e" "DISABLE_AUTOUPDATER=1"
     "-e" "DISABLE_UPDATES=1"
     "-v" "${SCRIPT_DIR}/claude_state:/home/opencode-user/.claude:Z,U"
-    "-v" "${SCRIPT_DIR}/claude_settings.json:/home/opencode-user/.claude/settings.json:ro,z"
+    "-v" "${SCRIPT_DIR}/claude_state/xdg_config:/home/opencode-user/.config:Z,U"
   )
 else
   AGENT_FLAGS+=(

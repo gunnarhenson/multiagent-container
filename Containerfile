@@ -23,8 +23,9 @@ RUN microdnf update -y && \
 RUN setcap cap_net_admin+ep $(which ip)
 
 RUN useradd -m -s /bin/bash opencode-user && \
+    ln -s /tmp/cache /home/opencode-user/.cache && \
     mkdir -p /workspace && \
-    chown opencode-user:opencode-user /workspace
+    chown -h opencode-user:opencode-user /workspace /home/opencode-user/.cache
 
 ############# go #############
 
@@ -117,6 +118,7 @@ RUN mkdir -p /opt/claude/bin /home/opencode-user/.local/bin /home/opencode-user/
     chmod 755 /opt/claude/bin/claude && \
     ln -s /opt/claude/bin/claude /home/opencode-user/.local/bin/claude && \
     ln -s /home/opencode-user/.claude/xdg_config/anthropic /home/opencode-user/.config/anthropic && \
+    ln -s /home/opencode-user/.claude/ccstatusline /home/opencode-user/.config/ccstatusline && \
     chown -R opencode-user:opencode-user /home/opencode-user/.local /home/opencode-user/.claude /home/opencode-user/.config
 
 ENV PATH="/opt/claude/bin:/home/opencode-user/.local/bin:${PATH}"

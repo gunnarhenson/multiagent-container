@@ -41,6 +41,7 @@ If you have already signed into Claude Code on your host machine:
 # Copy credentials, installed plugins, skills, and state into claude_state/
 cp -a ~/.claude/. ./claude_state/
 cp ~/.claude.json ./claude_state/.claude.json
+cp -a ~/.config/ccstatusline ./claude_state/ 2>/dev/null || true
 
 # Rewrite hardcoded host home paths in plugin manifests to the container user path
 sed -i "s|${HOME}/.claude|/home/opencode-user/.claude|g" \
@@ -48,7 +49,7 @@ sed -i "s|${HOME}/.claude|/home/opencode-user/.claude|g" \
   ./claude_state/plugins/known_marketplaces.json 2>/dev/null || true
 ```
 
-Merge any custom settings (such as `enabledPlugins` or `extraKnownMarketplaces` from `~/.claude/settings.json`) into `./claude_settings.json` while keeping the container's `permissions` block (`/mnt`, `/tmp`, and `.env` deny rules).
+Settings in `./claude_state/settings.json` (also symlinked at `./claude_settings.json`) and status line settings in `./claude_state/ccstatusline/settings.json` are mounted read-write inside the container, while sandbox permissions (`/mnt`, `/tmp`, and `.env` deny rules) are enforced via `/etc/claude-code/managed-settings.json`.
 
 > **Note:** OAuth tokens in `claude_state/.credentials.json` auto-refresh inside the container. Avoid running a separate host `claude` installation against the same credentials in parallel, as OAuth refresh token rotation will invalidate the other copy.
 
@@ -90,6 +91,10 @@ claude
 # Run with read-write access to the current directory
 opencode -rw [args...]
 claude -rw [args...]
+
+# Open in a specific directory (mounts that directory to /workspace instead of pwd)
+opencode /path/to/project
+claude /path/to/project
 
 # Mount additional directories to /mnt/<dirname> (inherits container ro/rw mode by default)
 opencode -m /path/to/dir1 -m /path/to/dir2

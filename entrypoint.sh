@@ -16,7 +16,8 @@ export USER="opencode-user"
 export LOGNAME="opencode-user"
 
 if [ "$AGENT" = "claude" ]; then
-    mkdir -p /home/opencode-user/.claude/xdg_config/anthropic /home/opencode-user/.claude/xdg_state
+    mkdir -p /home/opencode-user/.claude/xdg_config/anthropic /home/opencode-user/.claude/xdg_state /home/opencode-user/.claude/ccstatusline
+    ln -sfn /home/opencode-user/.claude/ccstatusline /home/opencode-user/.claude/xdg_config/ccstatusline 2>/dev/null || true
     chown -R 1000:1000 /home/opencode-user/.claude 2>/dev/null || true
     AGENT_BIN="/opt/claude/bin/claude"
 else
