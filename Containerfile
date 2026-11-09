@@ -71,7 +71,7 @@ ENV PATH="/tmp/cargo/bin:/usr/local/cargo/bin:${PATH}"
 
 ############# bun #############
 
-ARG BUN_VERSION=1.4.3
+ARG BUN_VERSION=1.4.4
 RUN wget -O /tmp/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip && \
     rm -rf /usr/local/bun && \
     mkdir /tmp/bun-extract && \
@@ -95,7 +95,7 @@ WORKDIR /workspace
 FROM base AS opencode
 
 # Releases: https://github.com/anomalyco/opencode/tags
-ARG OPENCODE_VERSION=2.1.0
+ARG OPENCODE_VERSION=2.2.0
 RUN wget -O /tmp/install https://opencode.ai/v2/install && \
     HOME=/opt/opencode bash /tmp/install --version ${OPENCODE_VERSION} && \
     chmod 755 /opt/opencode/.opencode/bin/opencode && \
@@ -112,7 +112,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 FROM base AS claude
 
 # Releases: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION=2.1.304
+ARG CLAUDE_VERSION=2.1.312
 RUN mkdir -p /opt/claude/bin /home/opencode-user/.local/bin /home/opencode-user/.claude /home/opencode-user/.config /etc/claude-code && \
     wget -O /opt/claude/bin/claude https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude && \
     chmod 755 /opt/claude/bin/claude && \

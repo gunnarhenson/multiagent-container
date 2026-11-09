@@ -205,13 +205,105 @@ EOF
 fi
 
 PODMAN_MOUNTS=()
+MOUNTED_GIT_DIRS=()
+
+mount_git_dir_once() {
+  local dir="$1"
+  local existing
+  for existing in "${MOUNTED_GIT_DIRS[@]}"; do
+    if [ "$existing" = "$dir" ]; then
+      return 0
+    fi
+  done
+  MOUNTED_GIT_DIRS+=("$dir")
+  PODMAN_MOUNTS+=("-v" "${dir}:${dir}:ro,z")
+}
+
+mount_git_ro() {
+  local host_dir="$1"
+  local container_dir="$2"
+
+  if [ ! -e "${host_dir}/.git" ]; then
+    return 0
+  fi
+
+  if [ -d "${host_dir}/.git" ]; then
+    PODMAN_MOUNTS+=("-v" "${host_dir}/.git:${container_dir}/.git:ro,z")
+    return 0
+  fi
+
+  if [ -f "${host_dir}/.git" ]; then
+    local gitdir_line raw_gitdir wt_git_dir commondir_line common_git_dir
+    IFS= read -r gitdir_line < "${host_dir}/.git" || true
+    gitdir_line="${gitdir_line%$'\r'}"
+    if [[ "$gitdir_line" != gitdir:* ]]; then
+      PODMAN_MOUNTS+=("-v" "${host_dir}/.git:${container_dir}/.git:ro,z")
+      return 0
+    fi
+
+    raw_gitdir="${gitdir_line#gitdir:}"
+    raw_gitdir="${raw_gitdir#"${raw_gitdir%%[![:space:]]*}"}"
+    raw_gitdir="${raw_gitdir%"${raw_gitdir##*[![:space:]]}"}"
+
+    if [[ "$raw_gitdir" == /* ]]; then
+      wt_git_dir=$(realpath -- "$raw_gitdir" 2>/dev/null || true)
+    else
+      wt_git_dir=$(realpath -- "${host_dir}/${raw_gitdir}" 2>/dev/null || true)
+    fi
+
+    if [ -z "$wt_git_dir" ] || [ ! -d "$wt_git_dir" ]; then
+      PODMAN_MOUNTS+=("-v" "${host_dir}/.git:${container_dir}/.git:ro,z")
+      return 0
+    fi
+
+    common_git_dir="$wt_git_dir"
+    if [ -f "${wt_git_dir}/commondir" ]; then
+      IFS= read -r commondir_line < "${wt_git_dir}/commondir" || true
+      commondir_line="${commondir_line%$'\r'}"
+      commondir_line="${commondir_line#"${commondir_line%%[![:space:]]*}"}"
+      commondir_line="${commondir_line%"${commondir_line##*[![:space:]]}"}"
+      if [ -n "$commondir_line" ]; then
+        if [[ "$commondir_line" == /* ]]; then
+          common_git_dir=$(realpath -- "$commondir_line" 2>/dev/null || echo "$wt_git_dir")
+        else
+          common_git_dir=$(realpath -- "${wt_git_dir}/${commondir_line}" 2>/dev/null || echo "$wt_git_dir")
+        fi
+      fi
+    fi
+
+    if [[ "$raw_gitdir" == /* ]]; then
+      PODMAN_MOUNTS+=("-v" "${host_dir}/.git:${container_dir}/.git:ro,z")
+    else
+      local safe_name="${host_dir#/}"
+      safe_name="${safe_name//\//_}"
+      local rewritten_gitfile="${SCRIPT_DIR}/state/GITDIR_${safe_name}"
+      printf 'gitdir: %s\n' "$wt_git_dir" > "$rewritten_gitfile"
+      PODMAN_MOUNTS+=("-v" "${rewritten_gitfile}:${container_dir}/.git:ro,z")
+    fi
+
+    if [ -d "$common_git_dir" ]; then
+      if [[ "$common_git_dir" == "${host_dir}/"* ]]; then
+        local rel_common="${common_git_dir#"${host_dir}/"}"
+        PODMAN_MOUNTS+=("-v" "${common_git_dir}:${container_dir}/${rel_common}:ro,z")
+      fi
+      mount_git_dir_once "$common_git_dir"
+    fi
+
+    if [ "$wt_git_dir" != "$common_git_dir" ] && [[ "$wt_git_dir" != "${common_git_dir}/"* ]]; then
+      if [[ "$wt_git_dir" == "${host_dir}/"* ]]; then
+        local rel_wt="${wt_git_dir#"${host_dir}/"}"
+        PODMAN_MOUNTS+=("-v" "${wt_git_dir}:${container_dir}/${rel_wt}:ro,z")
+      fi
+      mount_git_dir_once "$wt_git_dir"
+    fi
+  fi
+}
+
 # always mount the workspace directory to /workspace
 PODMAN_MOUNTS+=("-v" "${WORKSPACE_DIR}:/workspace:${WORKSPACE_MODE},z")
 
-# mount .git as ro always
-if [ -e "${WORKSPACE_DIR}/.git" ]; then
-  PODMAN_MOUNTS+=("-v" "${WORKSPACE_DIR}/.git:/workspace/.git:ro,z")
-fi
+# mount .git (and worktree git history if applicable) as ro always
+mount_git_ro "${WORKSPACE_DIR}" "/workspace"
 
 MOUNTED_TARGETS=("/workspace")
 EXTRA_MOUNT_DESC=()
@@ -268,9 +360,7 @@ for spec in "${EXTRA_MOUNT_SPECS[@]}"; do
   echo "mounting ${HOST_DIR} to ${CONTAINER_DIR} (${MOUNT_MODE})"
   PODMAN_MOUNTS+=("-v" "${HOST_DIR}:${CONTAINER_DIR}:${MOUNT_MODE},z")
 
-  if [ -e "${HOST_DIR}/.git" ]; then
-    PODMAN_MOUNTS+=("-v" "${HOST_DIR}/.git:${CONTAINER_DIR}/.git:ro,z")
-  fi
+  mount_git_ro "${HOST_DIR}" "${CONTAINER_DIR}"
 
   EXTRA_MOUNT_DESC+=("\`${CONTAINER_DIR}\` (${MOUNT_MODE})")
   if [ "$MOUNT_MODE" = "rw" ]; then
