@@ -43,7 +43,7 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 
 ############# zig #############
 
-ARG ZIG_VERSION=0.17.0
+ARG ZIG_VERSION=0.17.1
 RUN wget -O /tmp/zig.tar.xz https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz && \
     rm -rf /usr/local/zig && \
     mkdir /tmp/zig && \
@@ -95,7 +95,7 @@ WORKDIR /workspace
 FROM base AS opencode
 
 # Releases: https://github.com/anomalyco/opencode/tags
-ARG OPENCODE_VERSION=2.2.0
+ARG OPENCODE_VERSION=2.2.6
 RUN wget -O /tmp/install https://opencode.ai/v2/install && \
     HOME=/opt/opencode bash /tmp/install --version ${OPENCODE_VERSION} && \
     chmod 755 /opt/opencode/.opencode/bin/opencode && \
@@ -112,7 +112,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 FROM base AS claude
 
 # Releases: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION=2.1.312
+ARG CLAUDE_VERSION=2.1.319
 RUN mkdir -p /opt/claude/bin /home/opencode-user/.local/bin /home/opencode-user/.claude /home/opencode-user/.config /etc/claude-code && \
     wget -O /opt/claude/bin/claude https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude && \
     chmod 755 /opt/claude/bin/claude && \
