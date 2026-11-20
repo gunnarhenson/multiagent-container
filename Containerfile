@@ -29,7 +29,7 @@ RUN useradd -m -s /bin/bash opencode-user && \
 
 ############# go #############
 
-ARG GO_VERSION=go1.27.3
+ARG GO_VERSION=go1.27.4
 RUN wget -P /tmp https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz && \
     rm -rf /usr/local/go && \
     tar -C /usr/local -xzf /tmp/${GO_VERSION}.linux-amd64.tar.gz && \
@@ -57,7 +57,7 @@ ENV ZIG_GLOBAL_CACHE_DIR="/tmp/zig-global-cache"
 
 ############# rust #############
 
-ARG RUST_VERSION=1.99.1
+ARG RUST_VERSION=1.100.0
 ENV RUSTUP_HOME="/usr/local/rustup"
 RUN export CARGO_HOME="/usr/local/cargo" && \
     wget -qO- https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain ${RUST_VERSION} && \
@@ -95,7 +95,7 @@ WORKDIR /workspace
 FROM base AS opencode
 
 # Releases: https://github.com/anomalyco/opencode/tags
-ARG OPENCODE_VERSION=2.2.6
+ARG OPENCODE_VERSION=2.3.2
 RUN wget -O /tmp/install https://opencode.ai/v2/install && \
     HOME=/opt/opencode bash /tmp/install --version ${OPENCODE_VERSION} && \
     chmod 755 /opt/opencode/.opencode/bin/opencode && \
@@ -112,7 +112,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 FROM base AS claude
 
 # Releases: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION=2.1.319
+ARG CLAUDE_VERSION=2.1.327
 RUN mkdir -p /opt/claude/bin /home/opencode-user/.local/bin /home/opencode-user/.claude /home/opencode-user/.config /etc/claude-code && \
     wget -O /opt/claude/bin/claude https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude && \
     chmod 755 /opt/claude/bin/claude && \
